@@ -1,7 +1,8 @@
+from collections import Counter
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class Cave:
     name: str
     connections: list["Cave"]
@@ -38,26 +39,78 @@ def one():
     """
     How many paths are there from start to end that don't visit small caves
     multiple times?
+
+    I don't think there can be repeated paths, so just doing DFS should be fine
+    without checking for redundancy.
     """
 
-    def paths(start: Cave, end: Cave, smalls_visited: list[str] = []) -> list[int]:
-        """Return list of number of paths from start to end from each of start's connections."""
+    # We have to track some state per path, so let's do it using a function argument
+    def paths(start: Cave, end: Cave, smalls_visited: list[str]) -> list[list[str]]:
+        """Return list of paths from start to end from each of start's connections."""
+        # Base case
+        if start.name == end.name:
+            # One path: do nothing
+            return [[]]
+
         if start.size == "small":
             smalls_visited.append(start.name)
-        return [
-            paths(connection, end, smalls_visited)
-            for connection in start.connections
-            if connection.name not in smalls_visited
-        ]
+
+        connection_paths: dict[str, list[list[str]]] = {}
+        for connection in start.connections:
+            if connection.name not in smalls_visited:
+                copy = smalls_visited.copy()
+                connection_paths[connection.name] = paths(connection, end, copy)
+        all_paths: list[list[str]] = []
+        for connection, paths_ in connection_paths.items():
+            for path in paths_:
+                all_paths.append([connection, *path])
+
+        return all_paths
 
     start = next(cave for cave in caves if cave.name == "start")
     end = next(cave for cave in caves if cave.name == "end")
 
-    return paths(start, end, [])
+    return len(paths(start, end, []))
 
 
 def two():
-    pass
+    """Same as one but now we can visit one small cave twice, except start and end."""
+
+    def can_visit_cave(cave: Cave, smalls_visited: list[str]):
+        if cave.size == "big" or cave.name not in smalls_visited:
+            return True
+        if cave.name in ("start", "end"):
+            return False
+        # Check if we've already visited some cave twice
+        return Counter(smalls_visited).most_common(1)[0][1] < 2
+
+    # We have to track some state per path, so let's do it using a function argument
+    def paths(start: Cave, end: Cave, smalls_visited: list[str]) -> list[list[str]]:
+        """Return list of paths from start to end from each of start's connections."""
+        # Base case
+        if start.name == end.name:
+            # One path: do nothing
+            return [[]]
+
+        if start.size == "small":
+            smalls_visited.append(start.name)
+
+        connection_paths: dict[str, list[list[str]]] = {}
+        for connection in start.connections:
+            if can_visit_cave(connection, smalls_visited):
+                copy = smalls_visited.copy()
+                connection_paths[connection.name] = paths(connection, end, copy)
+        all_paths: list[list[str]] = []
+        for connection, paths_ in connection_paths.items():
+            for path in paths_:
+                all_paths.append([connection, *path])
+
+        return all_paths
+
+    start = next(cave for cave in caves if cave.name == "start")
+    end = next(cave for cave in caves if cave.name == "end")
+
+    return len(paths(start, end, []))
 
 
 if __name__ == "__main__":
