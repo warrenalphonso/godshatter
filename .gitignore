@@ -6,6 +6,8 @@
 # - Python: https://github.com/github/gitignore/blob/master/Python.gitignore
 # - Jupyter Notebook: https://github.com/github/gitignore/blob/master/community/Python/JupyterNotebooks.gitignore
 
+scratch
+
 ###############################################################################
 # MacOS: https://github.com/github/gitignore/blob/master/Global/macOS.gitignore
 
