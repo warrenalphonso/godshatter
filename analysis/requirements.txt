@@ -1,5 +1,12 @@
+geopandas
+jupyter
 matplotlib
 numpy
 pandas
+plotly
 requests
 scipy
+seaborn
+statsmodels
+tabulate
+tqdm
