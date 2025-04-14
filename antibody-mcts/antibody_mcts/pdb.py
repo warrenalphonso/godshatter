@@ -89,7 +89,7 @@ def make_mutation(faspr_executable: pathlib.Path, antibody: Antibody, mutation: 
         sequences_path = pathlib.Path(temp_dir) / "sequence.txt"
         sequences_path.write_text("".join(sequences.values()))
 
-        output_file = dir / f"{get_id(h=sequences['L'], l=sequences['L'])}.pdb"
+        output_file = dir / f"{get_id(h=sequences['H'], l=sequences['L'])}.pdb"
 
         # Call FASPR
         command = [
