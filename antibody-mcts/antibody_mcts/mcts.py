@@ -1,5 +1,6 @@
 import dataclasses
 import itertools
+import json
 import logging
 import math
 import pathlib
@@ -39,11 +40,9 @@ class Node:
     parent: "Node | None"
 
 class MCTS:
-    def __init__(self, *, iterations, depth, exploration_constant = math.sqrt(2), faspr_executable, mutations_dir, chain_to_state=None):
+    def __init__(self, *, iterations, depth, exploration_constant = math.sqrt(2), faspr_executable, mutations_dir):
         self.bktree = BKTree(distance_func=_subs)
-        self.chain_to_state = chain_to_state or {}
-        for antibody in self.chain_to_state.values():
-            self.bktree.add(antibody)
+        self.chain_to_state = {}
 
         self.iterations = iterations
         self.search_depth = depth
@@ -101,6 +100,22 @@ class MCTS:
             return -average_score + exploration_term
         best_antibody = max(children, key=uct_score)
         return Node(antibody=best_antibody, parent=node)
+
+    def dump(self, p: pathlib.Path):
+        "Serialize and dump current state to `p`."
+        serialized_antibodies = [
+            dict(filename=ab.pdb.name, total_score=ab.total_score, visits=ab.visits)
+            for ab in self.chain_to_state.values()
+        ]
+        p.write_text(json.dumps(serialized_antibodies))
+
+    def load(self, p: pathlib.Path):
+        "Load state from `p`."
+        serialized_antibodies = json.loads(p.read_text())
+        for s_antibody in serialized_antibodies:
+            antibody = Antibody(pdb=self.mutations_dir / s_antibody["filename"], total_score=s_antibody["total_score"], visits=s_antibody["visits"])
+            self.chain_to_state[get_chains(antibody)] = antibody
+            self.bktree.add(antibody)
 
     def _unseen_random_mutation(self, start: Antibody) -> Antibody | None:
         "Try random mutations until we get a new Antibody or hit the attempt limit."
