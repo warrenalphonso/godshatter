@@ -39,10 +39,18 @@ class Node:
     antibody: Antibody
     parent: "Node | None"
 
+@dataclasses.dataclass(frozen=True)
+class SerializedAntibody:
+    filename: str
+    total_score: float
+    visits: int
+
 class MCTS:
     def __init__(self, *, iterations, depth, exploration_constant = math.sqrt(2), faspr_executable, mutations_dir):
         self.bktree = BKTree(distance_func=_subs)
-        self.chain_to_state = {}
+        self.fname_to_state: dict[str, Antibody] = {}
+
+        self.synced_states: dict[str, SerializedAntibody] = {}
 
         self.iterations = iterations
         self.search_depth = depth
@@ -55,7 +63,7 @@ class MCTS:
 
     def run(self, *, root_node: Node):
         self.bktree.add(root_node.antibody)
-        self.chain_to_state[get_chains(root_node.antibody)] = root_node.antibody
+        self.fname_to_state[root_node.antibody.pdb.name] = root_node.antibody
 
         node = root_node
         for _ in range(self.iterations):
@@ -68,7 +76,7 @@ class MCTS:
         for _ in range(self.search_depth):
             if unseen_antibody := self._unseen_random_mutation(node.antibody):
                 self.bktree.add(unseen_antibody)
-                self.chain_to_state[get_chains(unseen_antibody)] = unseen_antibody
+                self.fname_to_state[unseen_antibody.pdb.name] = unseen_antibody
                 return Node(antibody=unseen_antibody, parent=node)
             node = self.uct(node=node)
         return node
@@ -101,21 +109,32 @@ class MCTS:
         best_antibody = max(children, key=uct_score)
         return Node(antibody=best_antibody, parent=node)
 
-    def dump(self, p: pathlib.Path):
-        "Serialize and dump current state to `p`."
-        serialized_antibodies = [
-            dict(filename=ab.pdb.name, total_score=ab.total_score, visits=ab.visits)
-            for ab in self.chain_to_state.values()
-        ]
-        p.write_text(json.dumps(serialized_antibodies))
+    def dumps_diff(self) -> list[dict]:
+        "Serialize and dump diff between last load and current state."
+        diff = []
+        for antibody in self.fname_to_state.values():
+            fname = antibody.pdb.name
+            current = SerializedAntibody(filename=fname, total_score=antibody.total_score, visits=antibody.visits)
 
-    def load(self, p: pathlib.Path):
-        "Load state from `p`."
-        serialized_antibodies = json.loads(p.read_text())
-        for s_antibody in serialized_antibodies:
-            antibody = Antibody(pdb=self.mutations_dir / s_antibody["filename"], total_score=s_antibody["total_score"], visits=s_antibody["visits"])
-            self.chain_to_state[get_chains(antibody)] = antibody
-            self.bktree.add(antibody)
+            if fname not in self.synced_states:
+                diff.append(current)
+            elif (synced_state := self.synced_states[fname]) != current:
+                diff.append(SerializedAntibody(filename=fname, total_score=current.total_score - synced_state.total_score, visits=current.visits - synced_state.visits))
+            self.synced_states[fname] = current
+
+        return [dataclasses.asdict(o) for o in diff]
+
+    def loads_diff(self, diff: list[dict]):
+        "Load state diff from `diff`."
+        serialized_diff = [SerializedAntibody(**d) for d in diff]
+        for serialized_antibody in serialized_diff:
+            if serialized_antibody.filename not in self.fname_to_state:
+                antibody = Antibody(pdb=self.mutations_dir / serialized_antibody.filename, total_score=serialized_antibody.total_score, visits=serialized_antibody.visits)
+                self.fname_to_state[serialized_antibody.filename] = antibody
+                self.bktree.add(antibody)
+            else:
+                self.fname_to_state[serialized_antibody.filename].total_score += serialized_antibody.total_score
+                self.fname_to_state[serialized_antibody.filename].visits += serialized_antibody.visits
 
     def _unseen_random_mutation(self, start: Antibody) -> Antibody | None:
         "Try random mutations until we get a new Antibody or hit the attempt limit."
@@ -140,4 +159,4 @@ class MCTS:
 
     def _children(self, start: Antibody) -> list[Antibody]:
         "Explored antibodies with at most 1 substitution from `start`."
-        return [self.chain_to_state[s[1]] for s in self.bktree.find(start, n=1)]
+        return [self.fname_to_state[s[1].pdb.name] for s in self.bktree.find(start, n=1)]
