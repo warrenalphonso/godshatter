@@ -136,6 +136,8 @@ class MCTS:
                 self.fname_to_state[serialized_antibody.filename].total_score += serialized_antibody.total_score
                 self.fname_to_state[serialized_antibody.filename].visits += serialized_antibody.visits
 
+            self.synced_states[serialized_antibody.filename] = serialized_antibody
+
     def _unseen_random_mutation(self, start: Antibody) -> Antibody | None:
         "Try random mutations until we get a new Antibody or hit the attempt limit."
         # Check if unseen mutation exists
