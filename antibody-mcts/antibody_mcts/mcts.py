@@ -1,10 +1,12 @@
+from collections import defaultdict
+import copy
 import dataclasses
 import itertools
-import json
 import logging
 import math
 import pathlib
 import random
+from typing import Callable, TypedDict
 
 from Bio.Data import IUPACData
 from pybktree import BKTree
@@ -39,20 +41,39 @@ class Node:
     antibody: Antibody
     parent: "Node | None"
 
-@dataclasses.dataclass(frozen=True)
-class SerializedAntibody:
-    filename: str
+class Diff(TypedDict):
     total_score: float
     visits: int
 
+Diffs = dict[str, Diff]
+
+
+class DiffEmitter:
+    def __init__(self) -> None:
+        self.deltas: Diffs = defaultdict(lambda: Diff(total_score=0.0, visits=0))
+
+    def record(self, filename: str, score_delta: float, visit_delta: float):
+        self.deltas[filename]["total_score"] += score_delta
+        self.deltas[filename]["visits"] += visit_delta
+
+    def flush(self) -> Diffs:
+        out = copy.deepcopy(self.deltas)
+        self.deltas.clear()
+        return out
+
+def apply_diff(diffs: Diffs, ensure_antibody: Callable[[str], Antibody]):
+    for fname, diff in diffs.items():
+        ab = ensure_antibody(fname)
+        ab.total_score += diff["total_score"]
+        ab.visits += diff["visits"]
+
 class MCTS:
-    def __init__(self, *, iterations, depth, exploration_constant = math.sqrt(2), faspr_executable, mutations_dir):
+    def __init__(self, *, depth, exploration_constant = math.sqrt(2), faspr_executable, mutations_dir):
         self.bktree = BKTree(distance_func=_subs)
         self.fname_to_state: dict[str, Antibody] = {}
 
-        self.synced_states: dict[str, SerializedAntibody] = {}
+        self.diff_emitter = DiffEmitter()
 
-        self.iterations = iterations
         self.search_depth = depth
         self.exploration_constant = exploration_constant
         self.random_mutation_attempts = 10
@@ -61,15 +82,18 @@ class MCTS:
         self.mutations_dir = mutations_dir
         assert self.mutations_dir.exists()
 
-    def run(self, *, root_node: Node):
-        self.bktree.add(root_node.antibody)
-        self.fname_to_state[root_node.antibody.pdb.name] = root_node.antibody
+    def run(self, *, pdb: pathlib.Path):
+        if pdb.name in self.fname_to_state:
+            antibody = self.fname_to_state[pdb.name]
+        else:
+            antibody = Antibody(pdb=pdb)
+            self.bktree.add(antibody)
+            self.fname_to_state[antibody.pdb.name] = antibody
 
-        node = root_node
-        for _ in range(self.iterations):
-            leaf_node = self.select(node)
-            reward = self.simulate(leaf_node)
-            self.backprop(leaf_node, reward)
+        node = Node(antibody=antibody, parent=None)
+        leaf_node = self.select(node)
+        reward = self.simulate(leaf_node)
+        self.backprop(leaf_node, reward)
 
     def select(self, node: Node) -> Node:
         "Try creating a new leaf or pick one using UCT."
@@ -96,6 +120,7 @@ class MCTS:
         while node:
             node.antibody.total_score += reward
             node.antibody.visits += 1
+            self.diff_emitter.record(filename=node.antibody.pdb.name, score_delta=reward, visit_delta=1)
             node = node.parent
 
     def uct(self, node: Node) -> Node:
@@ -109,34 +134,20 @@ class MCTS:
         best_antibody = max(children, key=uct_score)
         return Node(antibody=best_antibody, parent=node)
 
-    def dumps_diff(self) -> list[dict]:
+    def dumps_diff(self) -> Diffs:
         "Serialize and dump diff between last load and current state."
-        diff = []
-        for antibody in self.fname_to_state.values():
-            fname = antibody.pdb.name
-            current = SerializedAntibody(filename=fname, total_score=antibody.total_score, visits=antibody.visits)
+        return self.diff_emitter.flush()
 
-            if fname not in self.synced_states:
-                diff.append(current)
-            elif (synced_state := self.synced_states[fname]) != current:
-                diff.append(SerializedAntibody(filename=fname, total_score=current.total_score - synced_state.total_score, visits=current.visits - synced_state.visits))
-            self.synced_states[fname] = current
+    def loads_diff(self, diffs: Diffs):
+        "Load state diff from `diffs`."
+        def _get_antibody(fname: str):
+            if fname not in self.fname_to_state:
+                ab = Antibody(pdb=self.mutations_dir / fname)
+                self.fname_to_state[fname] = ab
+                self.bktree.add(ab)
+            return self.fname_to_state[fname]
 
-        return [dataclasses.asdict(o) for o in diff]
-
-    def loads_diff(self, diff: list[dict]):
-        "Load state diff from `diff`."
-        serialized_diff = [SerializedAntibody(**d) for d in diff]
-        for serialized_antibody in serialized_diff:
-            if serialized_antibody.filename not in self.fname_to_state:
-                antibody = Antibody(pdb=self.mutations_dir / serialized_antibody.filename, total_score=serialized_antibody.total_score, visits=serialized_antibody.visits)
-                self.fname_to_state[serialized_antibody.filename] = antibody
-                self.bktree.add(antibody)
-            else:
-                self.fname_to_state[serialized_antibody.filename].total_score += serialized_antibody.total_score
-                self.fname_to_state[serialized_antibody.filename].visits += serialized_antibody.visits
-
-            self.synced_states[serialized_antibody.filename] = serialized_antibody
+        apply_diff(diffs, ensure_antibody=_get_antibody)
 
     def _unseen_random_mutation(self, start: Antibody) -> Antibody | None:
         "Try random mutations until we get a new Antibody or hit the attempt limit."

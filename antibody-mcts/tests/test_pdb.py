@@ -4,21 +4,6 @@ import pytest
 
 from antibody_mcts.pdb import Antibody, Mutation, get_sequences, make_mutation, score_antibody
 
-@pytest.fixture
-def data():
-    return pathlib.Path(__file__).parent / "data"
-
-@pytest.fixture
-def glucagon_pdb_file(data):
-    return data / "1gcn.pdb"
-
-@pytest.fixture
-def cr3022_pdb_file(data):
-    return data / "relaxed-6w41.pdb"
-
-@pytest.fixture
-def cr3022(cr3022_pdb_file):
-    return Antibody(pdb=cr3022_pdb_file)
 
 @pytest.fixture
 def faspr_executable():
@@ -52,7 +37,7 @@ def test_make_mutation(cr3022, faspr_executable):
     assert result.H == "QMQLVQSGTEVKKPGESLKISCKGSGYGFITYWIGWVRQMPGKGLEWMGIIYPGDSETRYSPSFQGQVTISADKSINTAYLQWSSLKASDTAIYYCACGSGISTPMDVWGQGTTVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSC"
     assert result.L == cr3022.L == "DIQLTQSPDSLAVSLGERATINCKSSQSVLYSSINKNYLAWYQQKPGQPPKLLIYWASTRESGVPDRFSGSGSGTDFTLTISSLQAEDVAVYYCQQYYSTPYTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGECS"
 
-    """$ diff tests/data/relaxed-6w41.pdb tests/data/1df963add0646704f87fc6f6167e73c9.pdb
+    """$ diff tests/data/relaxed-6w41.pdb tests/data/c2dde259711bc0c128f8c1c05545436c.pdb
 759,762c759,764
 < ATOM      1  N   GLY H  94     -55.709 -28.995  14.683  1.00  0.00           N  
 < ATOM      2  CA  GLY H  94     -54.678 -29.079  13.671  1.00  0.00           C  
