@@ -1,6 +1,5 @@
 import pytest
-
-from antibody_mcts.distributed import MCTSCoordinator, LocalMessageTransport, LocalPDBStore, MCTSWorker, Message
+from antibody_mcts.distributed import LocalMessageTransport, LocalPDBStore, MCTSCoordinator, MCTSWorker, Message
 
 
 @pytest.fixture
@@ -19,15 +18,15 @@ class MockMCTS:
     def __init__(self):
         self.runs = []
         self.fname_to_state = {}
-        
+
     def run(self, pdb):
         """Record run"""
         self.runs.append(pdb)
-        
+
     def dumps_diff(self):
         """Return fake diffs"""
         return {"test.pdb": {"total_score": -10, "visits": 1}}
-        
+
     def loads_diff(self, diffs):
         """Record diffs"""
         pass
@@ -55,7 +54,7 @@ def test_distributed_run(transport, pdb_store, mcts_factory, coordinator):
         {"worker_id": "worker0"},
         {"worker_id": "worker1"},
     ]
-    
+
     coordinator.run_distributed("test.pdb", total_iterations=10, iterations_per_job=2)
     assert job == [
         {"job_id": "job-0", "pdb_id": "test.pdb", "iterations": 2, "target_worker": "worker0"},
@@ -79,7 +78,7 @@ def test_distributed_run(transport, pdb_store, mcts_factory, coordinator):
         {"source": "worker1", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
         {"source": "worker0", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
     ]
-    
+
     worker0.stop()
     worker1.stop()
     coordinator.stop()

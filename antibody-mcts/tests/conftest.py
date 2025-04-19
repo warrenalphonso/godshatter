@@ -1,6 +1,6 @@
 import pathlib
-import pytest
 
+import pytest
 from antibody_mcts.pdb import Antibody
 
 

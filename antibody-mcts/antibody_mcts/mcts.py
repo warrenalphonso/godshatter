@@ -1,4 +1,3 @@
-from collections import defaultdict
 import copy
 import dataclasses
 import itertools
@@ -6,14 +5,14 @@ import logging
 import math
 import pathlib
 import random
+from collections import defaultdict
 from typing import Callable, TypedDict
 
+from antibody_mcts.pdb import Antibody, Mutation, make_mutation, score_antibody
 from Bio.Data import IUPACData
-from pybktree import BKTree
 from prodigy_prot.modules.parsers import parse_structure
 from prodigy_prot.predict_IC import calculate_ic
-
-from antibody_mcts.pdb import Antibody, Mutation, make_mutation, score_antibody
+from pybktree import BKTree
 
 logging.getLogger().setLevel(10000)
 
@@ -116,7 +115,7 @@ class MCTS:
             curr = self._random_mutation(curr)
         return score_antibody(curr)
 
-    def backprop(self, node: Node, reward: float): 
+    def backprop(self, node: Node, reward: float):
         while node:
             node.antibody.total_score += reward
             node.antibody.visits += 1

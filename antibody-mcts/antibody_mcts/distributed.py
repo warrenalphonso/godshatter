@@ -2,7 +2,7 @@ import abc
 import dataclasses
 import pathlib
 from collections import defaultdict, deque
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from antibody_mcts.mcts import MCTS

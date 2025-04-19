@@ -34,7 +34,7 @@ def get_sequences(pdb: pathlib.Path) -> dict[chr, str]:
 class Antibody:
     """
     This class should store all relevant state information for a version of the antibody.
-    
+
     The MCTS Node will have some state of its own, but that should only be relevant to the
     particular search (eg parent for backprop).
     """
@@ -64,7 +64,7 @@ def score_antibody(antibody: Antibody) -> float:
     predictor.predict()
     return predictor.kd_val
 
-def get_id(*, h: str, l: str): 
+def get_id(*, h: str, l: str):
     return hashlib.md5(f"{h}:{l}".encode()).hexdigest()
 
 @dataclasses.dataclass(frozen=True)
@@ -76,7 +76,7 @@ class Mutation:
 def make_mutation(faspr_executable: pathlib.Path, antibody: Antibody, mutation: Mutation) -> Antibody:
     """
     Create a new Antibody by applying `mutation` to `antibody`. We use FASPR to mutate.
-    
+
     This creates the new PDB file in the same directory as `antibody.pdb`.
     The filename is set to `get_id(h, l)`.
     """
