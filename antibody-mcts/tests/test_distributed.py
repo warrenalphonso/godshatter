@@ -1,5 +1,5 @@
 import pytest
-from antibody_mcts.distributed import LocalMessageTransport, LocalPDBStore, MCTSCoordinator, MCTSWorker, Message
+from antibody_mcts.distributed import LocalMessageTransport, LocalPDBStore, MCTSCoordinator, MCTSWorker, Message, Topic
 
 
 @pytest.fixture
@@ -37,13 +37,13 @@ def mcts_factory():
 
 def test_distributed_run(transport, pdb_store, mcts_factory, coordinator):
     worker_ready = []
-    diff = []
     job = []
     job_complete = []
-    transport.subscribe("worker_ready", lambda message: worker_ready.append(message.payload.copy()))
-    transport.subscribe("diff", lambda message: diff.append(message.payload.copy()))
-    transport.subscribe("job", lambda message: job.append(message.payload.copy()))
-    transport.subscribe("job_complete", lambda message: job_complete.append(message.payload.copy()))
+    diff = []
+    transport.subscribe(Topic.WORKER_READY, "test", lambda message: worker_ready.append(message.payload.copy()))
+    transport.subscribe(Topic.NEW_JOB, "test", lambda message: job.append(message.payload.copy()))
+    transport.subscribe(Topic.JOB_COMPLETE, "test", lambda message: job_complete.append(message.payload.copy()))
+    transport.subscribe(Topic.DIFF, "test", lambda message: diff.append(message.payload.copy()))
 
     coordinator.start()
     worker0 = MCTSWorker("worker0", transport, pdb_store, mcts_factory)
