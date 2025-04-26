@@ -2,6 +2,7 @@ import abc
 import dataclasses
 import enum
 import pathlib
+import shutil
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 class Message:
     payload: dict
 
-class Topic(enum.Enum):
+class Topic(str, enum.Enum):
     WORKER_READY = "WORKER_READY"
     NEW_JOB = "NEW_JOB"
     JOB_COMPLETE = "JOB_COMPLETE"
@@ -37,7 +38,7 @@ class PDBStore(abc.ABC):
         "Get a PDB file, downloading if necessary"
 
     @abc.abstractmethod
-    def store_pdb(self, fname: str, pdb_data: bytes) -> None:
+    def store_pdb(self, fname: str, pdb_file: pathlib.Path) -> None:
         pass
 
 class LocalMessageTransport(MessageTransport):
@@ -59,9 +60,9 @@ class LocalPDBStore(PDBStore):
         self.base_dir.mkdir(exist_ok=True, parents=True)
     def get_pdb(self, fname: str) -> pathlib.Path:
         return self.base_dir / fname
-    def store_pdb(self, fname: str, pdb_data: bytes) -> None:
+    def store_pdb(self, fname: str, pdb_file: pathlib.Path) -> None:
         path = self.base_dir / fname
-        path.write_bytes(pdb_data)
+        shutil.copy(pdb_file, path)
 
 class MCTSWorker:
     def __init__(self, worker_id: str, message_transport: MessageTransport, pdb_store: PDBStore, mcts_factory: Callable[[], "MCTS"]):
