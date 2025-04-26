@@ -62,7 +62,7 @@ class LocalPDBStore(PDBStore):
         return self.base_dir / fname
     def store_pdb(self, fname: str, pdb_file: pathlib.Path) -> None:
         path = self.base_dir / fname
-        shutil.copy(pdb_file, path)
+        if pdb_file != path: shutil.copy(pdb_file, path)
 
 class MCTSWorker:
     def __init__(self, worker_id: str, message_transport: MessageTransport, pdb_store: PDBStore, mcts_factory: Callable[[], "MCTS"]):
@@ -97,6 +97,8 @@ class MCTSWorker:
         for _ in range(iterations):
             self.mcts.run(pdb=pdb_path)
         diffs = self.mcts.dumps_diff()
+        for fname in diffs:
+            self.pdb_store.store_pdb(fname=fname, pdb_file=self.mcts.mutations_dir / fname)
         self.transport.send(Topic.DIFF, Message(payload={"source": self.worker_id, "diffs": diffs}))
         self.transport.send(Topic.JOB_COMPLETE, Message(payload={"worker_id": self.worker_id, "job_id": message.payload["job_id"]}))
 

@@ -1,5 +1,5 @@
 import pytest
-from antibody_mcts.distributed import LocalMessageTransport, LocalPDBStore, MCTSCoordinator, MCTSWorker, Message, Topic
+from antibody_mcts.distributed import LocalMessageTransport, LocalPDBStore, MCTSCoordinator, MCTSWorker, Topic
 
 
 @pytest.fixture
@@ -15,9 +15,11 @@ def coordinator(transport, pdb_store):
     return MCTSCoordinator(transport=transport, pdb_store=pdb_store)
 
 class MockMCTS:
-    def __init__(self):
+    def __init__(self, mutations_dir, fname):
         self.runs = []
         self.fname_to_state = {}
+        self.mutations_dir = mutations_dir
+        self.fname = fname
 
     def run(self, pdb):
         """Record run"""
@@ -25,17 +27,17 @@ class MockMCTS:
 
     def dumps_diff(self):
         """Return fake diffs"""
-        return {"test.pdb": {"total_score": -10, "visits": 1}}
+        return {self.fname: {"total_score": -10, "visits": 1}}
 
     def loads_diff(self, diffs):
         """Record diffs"""
         pass
 
 @pytest.fixture
-def mcts_factory():
-    return lambda: MockMCTS()
+def mcts_factory(data, cr3022_pdb_file):
+    return lambda: MockMCTS(mutations_dir=data, fname=cr3022_pdb_file.name)
 
-def test_distributed_run(transport, pdb_store, mcts_factory, coordinator):
+def test_distributed_run(transport, pdb_store, mcts_factory, coordinator, cr3022_pdb_file):
     worker_ready = []
     job = []
     job_complete = []
@@ -55,13 +57,14 @@ def test_distributed_run(transport, pdb_store, mcts_factory, coordinator):
         {"worker_id": "worker1"},
     ]
 
-    coordinator.run_distributed("test.pdb", total_iterations=10, iterations_per_job=2)
+    fname = cr3022_pdb_file.name
+    coordinator.run_distributed(fname, total_iterations=10, iterations_per_job=2)
     assert job == [
-        {"job_id": "job-0", "pdb_id": "test.pdb", "iterations": 2, "target_worker": "worker0"},
-        {"job_id": "job-1", "pdb_id": "test.pdb", "iterations": 2, "target_worker": "worker1"},
-        {"job_id": "job-2", "pdb_id": "test.pdb", "iterations": 2, "target_worker": "worker0"},
-        {"job_id": "job-3", "pdb_id": "test.pdb", "iterations": 2, "target_worker": "worker1"},
-        {"job_id": "job-4", "pdb_id": "test.pdb", "iterations": 2, "target_worker": "worker0"},
+        {"job_id": "job-0", "pdb_id": fname, "iterations": 2, "target_worker": "worker0"},
+        {"job_id": "job-1", "pdb_id": fname, "iterations": 2, "target_worker": "worker1"},
+        {"job_id": "job-2", "pdb_id": fname, "iterations": 2, "target_worker": "worker0"},
+        {"job_id": "job-3", "pdb_id": fname, "iterations": 2, "target_worker": "worker1"},
+        {"job_id": "job-4", "pdb_id": fname, "iterations": 2, "target_worker": "worker0"},
     ]
     assert job_complete == [
         {"worker_id": "worker0", "job_id": "job-0"},
@@ -72,11 +75,11 @@ def test_distributed_run(transport, pdb_store, mcts_factory, coordinator):
     ]
 
     assert diff == [
-        {"source": "worker0", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
-        {"source": "worker1", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
-        {"source": "worker0", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
-        {"source": "worker1", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
-        {"source": "worker0", "diffs": {"test.pdb": {"total_score": -10, "visits": 1}}},
+        {"source": "worker0", "diffs": {fname: {"total_score": -10, "visits": 1}}},
+        {"source": "worker1", "diffs": {fname: {"total_score": -10, "visits": 1}}},
+        {"source": "worker0", "diffs": {fname: {"total_score": -10, "visits": 1}}},
+        {"source": "worker1", "diffs": {fname: {"total_score": -10, "visits": 1}}},
+        {"source": "worker0", "diffs": {fname: {"total_score": -10, "visits": 1}}},
     ]
 
     worker0.stop()

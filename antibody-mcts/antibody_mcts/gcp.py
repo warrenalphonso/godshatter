@@ -42,7 +42,7 @@ class PubSubTransport(MessageTransport):
     def subscribe(self, topic: Topic, id: str, callback: Callable[[Message], None]) -> None:
         self._callbacks[topic][id] = callback
         topic_path, subscription_path = self._get_topic_path(topic), self._get_subscription_path(topic, id)
-        self.subscriber.create_subscription(topic=topic_path, name=subscription_path)
+        self.subscriber.create_subscription(request=dict(topic=topic_path, name=subscription_path, enable_exactly_once_delivery=True, enable_message_ordering=True))
         future = self.subscriber.subscribe(subscription=subscription_path, callback=self._callback_wrapper(callback), scheduler=self.scheduler)
         self._subscriptions[topic][id] = future
 
