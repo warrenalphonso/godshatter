@@ -1,6 +1,7 @@
 """Utilities to interact with PDB files for antibodies."""
 import dataclasses
 import hashlib
+import logging
 import pathlib
 import subprocess
 import tempfile
@@ -11,6 +12,8 @@ from Bio.PDB.Polypeptide import is_aa
 from Bio.SeqUtils import seq1
 from prodigy_prot.modules.parsers import parse_structure
 from prodigy_prot.predict_IC import Prodigy
+
+logging.getLogger("Prodigy").setLevel(logging.ERROR)
 
 _parser = PDBParser(QUIET=True)
 

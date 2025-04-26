@@ -1,6 +1,7 @@
 import abc
 import dataclasses
 import enum
+import logging
 import pathlib
 import shutil
 from collections import defaultdict, deque
@@ -8,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from antibody_mcts.mcts import MCTS
+
+logger = logging.getLogger(__name__)
 
 @dataclasses.dataclass
 class Message:
@@ -34,12 +37,10 @@ class MessageTransport(abc.ABC):
 
 class PDBStore(abc.ABC):
     @abc.abstractmethod
-    def get_pdb(self, fname: str) -> pathlib.Path:
-        "Get a PDB file, downloading if necessary"
+    def get_pdb(self, fname: str) -> bytes: pass
 
     @abc.abstractmethod
-    def store_pdb(self, fname: str, pdb_file: pathlib.Path) -> None:
-        pass
+    def store_pdb(self, fname: str, content: bytes) -> None: pass
 
 class LocalMessageTransport(MessageTransport):
     "In-memory message transport for same-process communication"
@@ -58,11 +59,10 @@ class LocalPDBStore(PDBStore):
     def __init__(self, base_dir: pathlib.Path):
         self.base_dir = base_dir
         self.base_dir.mkdir(exist_ok=True, parents=True)
-    def get_pdb(self, fname: str) -> pathlib.Path:
-        return self.base_dir / fname
-    def store_pdb(self, fname: str, pdb_file: pathlib.Path) -> None:
-        path = self.base_dir / fname
-        if pdb_file != path: shutil.copy(pdb_file, path)
+    def get_pdb(self, fname: str) -> bytes:
+        return (self.base_dir / fname).read_bytes()
+    def store_pdb(self, fname: str, content: bytes) -> None:
+        (self.base_dir / fname).write_bytes(content)
 
 class MCTSWorker:
     def __init__(self, worker_id: str, message_transport: MessageTransport, pdb_store: PDBStore, mcts_factory: Callable[[], "MCTS"]):
@@ -77,6 +77,7 @@ class MCTSWorker:
         self.transport.subscribe(Topic.DIFF, self.worker_id, self._handle_diff)
         self.transport.subscribe(Topic.NEW_JOB, self.worker_id, self._handle_job)
         self.transport.send(Topic.WORKER_READY, Message(payload={"worker_id": self.worker_id}))
+        logger.info("Sent worker ready")
         self.running = True
 
     def stop(self) -> None:
@@ -87,20 +88,32 @@ class MCTSWorker:
 
     def _handle_diff(self, message: Message) -> None:
         "Handle diffs from other workers"
+        logger.info("Received diff")
         if message.payload["source"] != self.worker_id:  # Avoid our own diffs
-            self.mcts.loads_diff(message.payload["diffs"])
+            logger.info("Received diff from other worker")
+            diffs = message.payload["diffs"]
+            for fname in diffs:
+                p = self.mcts.mutations_dir / fname
+                if not p.exists(): p.write_bytes(self.pdb_store.get_pdb(fname))
+            self.mcts.loads_diff(diffs)
 
     def _handle_job(self, message: Message) -> None:
+        logger.info("Received job")
         if message.payload["target_worker"] != self.worker_id: return
-        pdb_path = self.pdb_store.get_pdb(message.payload["pdb_id"])
+        logger.info("Received job for me")
+        fname = message.payload["pdb_id"]
+        pdb_path = self.mcts.mutations_dir / fname
+        if not pdb_path.exists(): pdb_path.write_bytes(self.pdb_store.get_pdb(fname))
         iterations = message.payload["iterations"]
         for _ in range(iterations):
             self.mcts.run(pdb=pdb_path)
+        logger.info("Finished simulating")
         diffs = self.mcts.dumps_diff()
         for fname in diffs:
-            self.pdb_store.store_pdb(fname=fname, pdb_file=self.mcts.mutations_dir / fname)
+            self.pdb_store.store_pdb(fname=fname, content=(self.mcts.mutations_dir / fname).read_bytes())
         self.transport.send(Topic.DIFF, Message(payload={"source": self.worker_id, "diffs": diffs}))
         self.transport.send(Topic.JOB_COMPLETE, Message(payload={"worker_id": self.worker_id, "job_id": message.payload["job_id"]}))
+        logger.info("Sent diff and job complete")
 
 class MCTSCoordinator:
     def __init__(self, transport: MessageTransport, pdb_store: PDBStore):
@@ -125,12 +138,14 @@ class MCTSCoordinator:
         self.running = False
 
     def _handle_worker_ready(self, message: Message) -> None:
+        logger.info("Received worker ready")
         worker_id = message.payload["worker_id"]
         self.workers.append(worker_id)
         self.available_workers.append(worker_id)
         self._assign_pending_jobs()
 
     def _handle_job_complete(self, message: Message) -> None:
+        logger.info("Received job complete")
         worker_id = message.payload["worker_id"]
         job_id = message.payload["job_id"]
         del self.active_jobs[job_id]
@@ -154,3 +169,4 @@ class MCTSCoordinator:
             job["target_worker"] = worker_id
             self.active_jobs[job["job_id"]] = job
             self.transport.send(Topic.NEW_JOB, Message(payload=job))
+            logger.info("Sent new job")

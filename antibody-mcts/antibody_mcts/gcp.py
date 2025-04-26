@@ -82,10 +82,7 @@ class GCSPDBStore(PDBStore):
             self.client.get_bucket(bucket)
         except NotFound:
             self.bucket.create()
-    def get_pdb(self, fname: str) -> Path:
-        path = self.local_dir / fname
-        if not path.exists():
-            self.bucket.blob(fname).download_to_filename(path)
-        return path
-    def store_pdb(self, fname: str, pdb_file: pathlib.Path) -> None:
-        self.bucket.blob(fname).upload_from_filename(pdb_file)
+    def get_pdb(self, fname: str) -> bytes:
+        return self.bucket.blob(fname).download_as_bytes()
+    def store_pdb(self, fname: str, content: bytes) -> None:
+        self.bucket.blob(fname).upload_from_string(content)

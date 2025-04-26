@@ -19,3 +19,7 @@ def cr3022_pdb_file(data):
 @pytest.fixture
 def cr3022(cr3022_pdb_file):
     return Antibody(pdb=cr3022_pdb_file)
+
+@pytest.fixture
+def faspr_executable():
+    return pathlib.Path("/Users/wba/repos/FASPR/FASPR")

@@ -4,10 +4,6 @@ import pytest
 from antibody_mcts.pdb import Antibody, Mutation, get_sequences, make_mutation, score_antibody
 
 
-@pytest.fixture
-def faspr_executable():
-    return pathlib.Path("/Users/wba/repos/FASPR/FASPR")
-
 def test_get_sequences(glucagon_pdb_file, cr3022_pdb_file):
     "Test correct parsing of a glucagon PDB file."
     assert get_sequences(glucagon_pdb_file) == {"A": "HSQGTFTSDYSKYLDSRRAQDFVQWLMNT"}
