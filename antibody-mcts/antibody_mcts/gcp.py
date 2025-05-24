@@ -4,7 +4,6 @@ import logging
 import pathlib
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Callable
 
 from antibody_mcts.distributed import Message, MessageTransport, PDBStore, Topic

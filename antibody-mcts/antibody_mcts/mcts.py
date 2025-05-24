@@ -1,7 +1,6 @@
 import copy
 import dataclasses
 import itertools
-import logging
 import math
 import pathlib
 import random
@@ -14,7 +13,6 @@ from prodigy_prot.modules.parsers import parse_structure
 from prodigy_prot.predict_IC import calculate_ic
 from pybktree import BKTree
 
-logging.getLogger("Prodigy").setLevel(logging.ERROR)
 
 def _subs(a: Antibody, b: Antibody):
     return sum(ca != cb for ca, cb in zip(itertools.chain(a.H, a.L), itertools.chain(b.H + b.L)))

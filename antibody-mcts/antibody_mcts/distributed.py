@@ -3,7 +3,6 @@ import dataclasses
 import enum
 import logging
 import pathlib
-import shutil
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any, Callable
 
