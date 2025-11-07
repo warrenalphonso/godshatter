@@ -1,6 +1,0 @@
-[project]
-name = "gnn-fun"
-version = "0.0.0"
-
-[tool.setuptools]
-packages = ["gnn_fun"]
