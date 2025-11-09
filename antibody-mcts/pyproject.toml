@@ -1,6 +1,0 @@
-[project]
-name = "antibody-mcts"
-version = "0.0.0"
-
-[tool.setuptools]
-packages = ["antibody_mcts"]

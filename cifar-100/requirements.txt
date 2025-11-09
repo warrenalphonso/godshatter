@@ -1,4 +1,0 @@
-matplotlib
-numpy
-torch>=2.0.0
-torchvision

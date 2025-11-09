@@ -1,8 +1,0 @@
-datasets
-numpy
-protobuf~=3.20
-pytest
-scikit-learn
-sentencepiece
-torch~=1.13
-transformers
