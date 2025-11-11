@@ -2,9 +2,11 @@ import dataclasses
 
 import numpy as np
 from jaxtyping import Shaped
-from tinygrad import nn
+from tinygrad import TinyJit, nn
 from tinygrad.dtype import dtypes
-from tinygrad.nn.state import load_state_dict
+from tinygrad.helpers import Timing, fetch
+from tinygrad.nn.optim import AdamW
+from tinygrad.nn.state import get_parameters, load_state_dict
 from tinygrad.tensor import Tensor
 
 from typechecker.tinygrad import Float, Int
@@ -114,5 +116,54 @@ class GPT2:
         for block in self.h:
             x = block(x)
         x = self.ln_f(x)
-        x = self.lm_head(x)
-        return x
+        logits = self.lm_head(x)
+        return logits
+
+class DataLoader:
+    def __init__(self, B, T):
+        import tiktoken
+
+        self.B = B
+        self.T = T
+
+        with open(fetch("https://raw.githubusercontent.com/karpathy/char-rnn/refs/heads/master/data/tinyshakespeare/input.txt")) as f:
+            text = f.read()
+
+        enc = tiktoken.get_encoding("gpt2")
+        self.tokens = Tensor(enc.encode(text), dtype='int')
+        self.pos = 0
+
+    def next_batch(self) -> tuple[Int[Tensor, "B T"], Int[Tensor, "B T"]]:
+        tokens = self.tokens[self.pos : self.pos+self.B*self.T+1]
+        x = tokens[:-1].view((self.B, self.T)).contiguous()
+        y = tokens[1:].view((self.B, self.T)).contiguous()
+
+        self.pos += self.B*self.T
+        if self.pos >= len(self.tokens):
+            print("Done!")
+            self.pos = 0
+
+        return x.realize(), y.realize()
+
+
+if __name__ == "__main__":
+    model = GPT2(TinyConfig)
+    dl = DataLoader(4, 32)
+    opt = AdamW(get_parameters(model), lr=3e-4)
+
+    @TinyJit
+    def step(tokens: Int[Tensor, "B T"], targets: Int[Tensor, "B T"]):
+        logits = model(tokens)
+        loss = logits.sparse_categorical_crossentropy(targets)
+        opt.zero_grad()
+        loss.backward()
+        # schedule updates into same graph instead of updating state in jitted function
+        return loss.realize(*opt.schedule_step())
+
+
+    with Tensor.train():
+        for i in range(500):
+            with Timing(f"Time (step {i}): "):
+                x, y = dl.next_batch()
+                loss = step(x.contiguous(), y.contiguous()).item()
+                print(f'{loss=}')

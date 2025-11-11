@@ -1115,6 +1115,7 @@ source = { editable = "." }
 dependencies = [
     { name = "jaxtyping" },
     { name = "numpy" },
+    { name = "tiktoken" },
     { name = "tinygrad" },
     { name = "typechecker" },
 ]
@@ -1123,7 +1124,6 @@ dependencies = [
 dev = [
     { name = "jupyter" },
     { name = "matplotlib" },
-    { name = "tiktoken" },
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -1132,6 +1132,7 @@ dev = [
 requires-dist = [
     { name = "jaxtyping", specifier = ">=0.3.3" },
     { name = "numpy", specifier = ">=2.3.4" },
+    { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "tinygrad", specifier = ">=0.11.0" },
     { name = "typechecker", extras = ["tinygrad"], editable = "../typechecker" },
 ]
@@ -1140,7 +1141,6 @@ requires-dist = [
 dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib", specifier = ">=3.10.7" },
-    { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "torch", specifier = ">=2.9.0" },
     { name = "transformers", specifier = ">=4.57.1" },
 ]
@@ -2254,6 +2254,7 @@ source = { editable = "../typechecker" }
 [package.metadata]
 
 [package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.0" }]
 tinygrad = [
     { name = "jaxtyping", specifier = ">=0.3.3" },
     { name = "tinygrad", specifier = ">=0.11.0" },
