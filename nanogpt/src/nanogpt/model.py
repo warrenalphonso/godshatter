@@ -1,4 +1,6 @@
 import dataclasses
+import pathlib
+from datetime import datetime
 
 import numpy as np
 from jaxtyping import Shaped
@@ -6,7 +8,7 @@ from tinygrad import TinyJit, nn
 from tinygrad.dtype import dtypes
 from tinygrad.helpers import Timing, fetch
 from tinygrad.nn.optim import AdamW
-from tinygrad.nn.state import get_parameters, load_state_dict
+from tinygrad.nn.state import get_parameters, get_state_dict, load_state_dict, safe_save
 from tinygrad.tensor import Tensor
 
 from typechecker.tinygrad import Float, Int
@@ -134,22 +136,24 @@ class DataLoader:
         self.pos = 0
 
     def next_batch(self) -> tuple[Int[Tensor, "B T"], Int[Tensor, "B T"]]:
-        tokens = self.tokens[self.pos : self.pos+self.B*self.T+1]
+        needed = self.B*self.T+1
+        if self.pos + needed > len(self.tokens):
+            self.pos = 0
+
+        tokens = self.tokens[self.pos : self.pos+needed]
         x = tokens[:-1].view((self.B, self.T)).contiguous()
         y = tokens[1:].view((self.B, self.T)).contiguous()
 
         self.pos += self.B*self.T
-        if self.pos >= len(self.tokens):
-            print("Done!")
-            self.pos = 0
-
         return x.realize(), y.realize()
 
 
 if __name__ == "__main__":
     model = GPT2(TinyConfig)
-    dl = DataLoader(4, 32)
+    dl = DataLoader(4, 1024)
     opt = AdamW(get_parameters(model), lr=3e-4)
+    checkpoints_dir = pathlib.Path("/mydata/nanogpt-test-ckpts")
+    checkpoints_dir.mkdir(exist_ok=True)
 
     @TinyJit
     def step(tokens: Int[Tensor, "B T"], targets: Int[Tensor, "B T"]):
@@ -160,10 +164,13 @@ if __name__ == "__main__":
         # schedule updates into same graph instead of updating state in jitted function
         return loss.realize(*opt.schedule_step())
 
-
     with Tensor.train():
-        for i in range(500):
+        for i in range(1, 50_001):
             with Timing(f"Time (step {i}): "):
                 x, y = dl.next_batch()
                 loss = step(x.contiguous(), y.contiguous()).item()
                 print(f'{loss=}')
+
+            if i % 1_000 == 0:
+                ts = datetime.utcnow().strftime("%y%m%d-%H%M")
+                safe_save(get_state_dict(model), str(checkpoints_dir / f"step_{ts}_{i}.safetensors"))

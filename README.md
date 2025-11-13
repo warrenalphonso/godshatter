@@ -11,13 +11,11 @@ per-project rules, we'll need a better git hooks project.
 
 ## Dependency management
 
-The projects in `godshatter` aren't meant to be built or packaged, so the project
-metadata is pretty simple!
+Use `uv sync` to install library dependencies. They might install editable
+versions of other libraries in the repo.
 
+## Compute
 
-1. We use `pip` and [requirements files](https://pip.pypa.io/en/stable/reference/requirements-file-format/#requirements-file-format)
-   to specify dependencies. Requirements files are great because they allow us to
-   reference other local projects and their dependencies. Plus, they're simple and
-   well-maintained.
-2. We use [`pyproject.toml`](https://packaging.python.org/en/latest/specifications/declaring-project-metadata/#declaring-project-metadata)
-   to track basic project metadata.
+Use [SkyPilot](https://docs.skypilot.co/en/latest/docs/index.html) to provision
+compute infra and run scripts. I think it's pretty useful to install globally
+with `pipx install skypilot`.
