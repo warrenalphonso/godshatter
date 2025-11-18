@@ -1,0 +1,15 @@
+resources:
+  accelerators: A100
+  autostop:
+    down: true
+    idle_minutes: 10
+
+file_mounts:
+  /mydata:
+    source: gs://wba-sky-data
+
+workdir: ..
+
+setup: |
+  cd nanogpt
+  uv sync

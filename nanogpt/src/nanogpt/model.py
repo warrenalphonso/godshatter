@@ -150,7 +150,7 @@ class DataLoader:
 
 if __name__ == "__main__":
     model = GPT2(TinyConfig)
-    dl = DataLoader(4, 1024)
+    dl = DataLoader(8, 1024)
     opt = AdamW(get_parameters(model), lr=3e-4)
     checkpoints_dir = pathlib.Path("/mydata/nanogpt-test-ckpts")
     checkpoints_dir.mkdir(exist_ok=True)
