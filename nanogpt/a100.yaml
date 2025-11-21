@@ -1,3 +1,5 @@
+# sky launch -c a100 a100.yaml
+# sky ssh a100
 resources:
   accelerators: A100
   autostop:

@@ -1,17 +1,11 @@
 import dataclasses
-import pathlib
-from datetime import datetime
+import math
+import time
 
-import numpy as np
-from jaxtyping import Shaped
-from tinygrad import TinyJit, nn
-from tinygrad.dtype import dtypes
-from tinygrad.helpers import Timing, fetch
-from tinygrad.nn.optim import AdamW
-from tinygrad.nn.state import get_parameters, get_state_dict, load_state_dict, safe_save
-from tinygrad.tensor import Tensor
-
-from typechecker.tinygrad import Float, Int
+import torch
+import urllib3
+from jaxtyping import Float, Int
+from torch import Tensor, nn
 
 
 @dataclasses.dataclass
@@ -27,9 +21,8 @@ class Config:
     def d_model(self): # C
         return self.n_heads * self.d_head
 
-
-TinyConfig = Config(
-    vocab_size=50257,
+SmallConfig = Config(
+    vocab_size=51200,
     sequence_length=1024,
     n_layers=12,
     n_heads=12,
@@ -37,140 +30,128 @@ TinyConfig = Config(
     mlp_hidden_dim= 3072
 )
 
-class Block:
-    def __init__(self, config: Config):
-        self.config = config
-        self.ln_1 = nn.LayerNorm(config.d_model)
-        self.attn = {
-            "c_attn": nn.Linear(config.d_model, 3 * config.d_model), # 3 different linear projections (Q, K, V)
-            "c_proj": nn.Linear(config.d_model, config.d_model),
-        }
-        self.ln_2 = nn.LayerNorm(config.d_model)
-        self.mlp = {
-            "c_fc": nn.Linear(config.d_model, config.mlp_hidden_dim),
-            "c_proj": nn.Linear(config.mlp_hidden_dim, config.d_model),
-        }
+class LinearKaiming(nn.Linear):
+    def __init__(self, in_features:int, out_features:int, *, bias=True, scale=None):
+        super().__init__(in_features, out_features, bias=bias)
+        std = math.sqrt(2.0 / in_features)
+        if scale: std *= scale
+        with torch.no_grad():
+            self.weight.normal_(0.0, std)
+            if bias:
+                self.bias.zero_()
 
-    def __call__(self, x: Shaped[Tensor, "B T C"]) -> Shaped[Tensor, "B T C"]:
+class EmbeddingKaiming(nn.Embedding):
+    def __init__(self, vocab_size:int, embed_size:int):
+        super().__init__(vocab_size, embed_size)
+        with torch.no_grad():
+            self.weight = torch.nn.init.kaiming_normal_(self.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
+
+class Block(nn.Module):
+    def __init__(self, config: Config):
+        super().__init__()
+        self.config = config
+        residual_scaling_factor = 1.0 / math.sqrt(2 * config.n_layers)
+        self.ln_1 = nn.LayerNorm(config.d_model)
+        self.attn = nn.ModuleDict({
+            "c_attn": LinearKaiming(config.d_model, 3 * config.d_model), # 3 different linear projections (Q, K, V)
+            "c_proj": LinearKaiming(config.d_model, config.d_model, scale=residual_scaling_factor),
+        })
+        self.ln_2 = nn.LayerNorm(config.d_model)
+        self.mlp = nn.ModuleDict({
+            "c_fc": LinearKaiming(config.d_model, config.mlp_hidden_dim),
+            "c_proj": LinearKaiming(config.mlp_hidden_dim, config.d_model, scale=residual_scaling_factor),
+        })
+
+        self.register_buffer("causal_mask", torch.tril(torch.ones((config.sequence_length, config.sequence_length))).view(1, 1, config.sequence_length, config.sequence_length))
+
+    def forward(self, x: Float[Tensor, "B T C"]) -> Float[Tensor, "B T C"]:
         B, T, C = x.shape
         qkv = self.attn["c_attn"](self.ln_1(x))
-        assert isinstance(qkv, Shaped[Tensor, "B T 3*C"])
         q, k, v = qkv.split(C, dim=2)
 
-        def to_heads(t: Shaped[Tensor, "B T C"]) -> Shaped[Tensor, "B N T (C//N)"]:
-            return t.view(B, T, self.config.n_heads, self.config.d_head).transpose(1, 2).contiguous()
+        def to_heads(m: Float[Tensor, "B T C"]) -> Float[Tensor, "B N T (C//N)"]:
+            return m.view(B, T, self.config.n_heads, self.config.d_head).permute(0, 2, 1, 3)
 
         q, k, v = map(to_heads, (q, k, v))
-        att = (q @ k.transpose(-2, -1)) * (1.0 / np.sqrt(self.config.d_head))
-        assert isinstance(att, Shaped[Tensor, "B N T T"])
+        att = (q @ k.transpose(-2, -1)) / math.sqrt(self.config.d_head)
+        assert isinstance(att, Float[Tensor, "B N T T"])
+        att = att.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf')).softmax(dim=-1)
 
-        # Causal mask
-        causal_mask = Tensor.ones((self.config.sequence_length, self.config.sequence_length), requires_grad=False).tril().view(1, 1, self.config.sequence_length, self.config.sequence_length)
-        att = att.masked_fill(causal_mask[:, :, :T, :T] == 0, float('-inf')).softmax(axis=-1)
-        assert isinstance(att, Shaped[Tensor, "B N T T"])
         y = att @ v
-
-        # Merge heads
+        assert isinstance(y, Float[Tensor, "B N T (C//N)"])
         y = y.transpose(1, 2).contiguous().view(B, T, C)
-        y = self.attn["c_proj"](y)
-        # Add to residual
-        x = x + y
 
-        x = x + self.mlp["c_proj"](self.mlp["c_fc"](self.ln_2(x)).gelu())
+        x = x + self.attn["c_proj"](y)
+
+        x = x + self.mlp["c_proj"](nn.functional.gelu(self.mlp["c_fc"](self.ln_2(x))))
+
         return x
 
-class GPT2:
+class GPT2(nn.Module):
     def __init__(self, config: Config):
+        super().__init__()
         self.config = config
-        self.wte = nn.Embedding(config.vocab_size, config.d_model)
-        self.wpe = nn.Embedding(config.sequence_length, config.d_model)
-        self.h = [Block(config) for _ in range(config.n_layers)]
+        self.wte = EmbeddingKaiming(config.vocab_size, config.d_model)
+        self.wpe = EmbeddingKaiming(config.sequence_length, config.d_model)
+        self.h = nn.ModuleList([Block(config) for _ in range(config.n_layers)])
         self.ln_f = nn.LayerNorm(config.d_model)
-        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        self.lm_head = LinearKaiming(config.d_model, config.vocab_size, bias=False)
         self.lm_head.weight = self.wte.weight
 
-    @classmethod
-    def load_from_huggingface(cls):
-        from transformers import GPT2Config, GPT2Model
-
-        model = cls(TinyConfig)
-        model_hf = GPT2Model.from_pretrained("gpt2") # 124M
-
-        sd = {}
-        for k, v in model_hf.state_dict().items():
-            if k.startswith("transformer."): k = k.split("transformer.")[1]
-            # Huggingface dimensions for linear layers are transposed
-            if any(x in k for x in ["c_attn.weight", "c_proj.weight", "c_fc.weight", "c_proj.weight"]):
-                v = v.t()
-            sd[k] = Tensor(v.cpu().numpy())
-        sd['lm_head.weight'] = sd['wte.weight'] # Weight tying
-        load_state_dict(model, sd)
-        return model
-
-    def __call__(self, tokens: Int[Tensor, "B T"]) -> Float[Tensor, "B T V"]:
+    def forward(self, tokens: Int[Tensor, "B T"]) -> Float[Tensor, "B T V"]:
         B, T = tokens.shape
-        assert T <= self.config.sequence_length, "Input sequence length exceeds limit"
-
-        x = self.wte(tokens)
-        pos = Tensor.arange(T, dtype=dtypes.long)
-        x = x + self.wpe(pos)
+        x = self.wte(tokens) + self.wpe(torch.arange(T, dtype=torch.long, device=tokens.device))
 
         for block in self.h:
             x = block(x)
         x = self.ln_f(x)
         logits = self.lm_head(x)
+
         return logits
 
-class DataLoader:
-    def __init__(self, B, T):
-        import tiktoken
+def dataloader(B, T):
+    import tiktoken
 
-        self.B = B
-        self.T = T
+    text = urllib3.PoolManager().request("GET", "https://raw.githubusercontent.com/karpathy/char-rnn/refs/heads/master/data/tinyshakespeare/input.txt").data.decode()
+    enc = tiktoken.get_encoding("gpt2")
+    alltokens = torch.as_tensor(enc.encode(text), dtype=torch.long)
+    pos = 0
+    needed = B*T + 1
 
-        with open(fetch("https://raw.githubusercontent.com/karpathy/char-rnn/refs/heads/master/data/tinyshakespeare/input.txt")) as f:
-            text = f.read()
+    while pos + needed < len(alltokens):
+        tokens = alltokens[pos : pos+needed]
+        x = tokens[:-1].view((B, T))
+        y = tokens[1:].view((B, T))
 
-        enc = tiktoken.get_encoding("gpt2")
-        self.tokens = Tensor(enc.encode(text), dtype='int')
-        self.pos = 0
-
-    def next_batch(self) -> tuple[Int[Tensor, "B T"], Int[Tensor, "B T"]]:
-        needed = self.B*self.T+1
-        if self.pos + needed > len(self.tokens):
-            self.pos = 0
-
-        tokens = self.tokens[self.pos : self.pos+needed]
-        x = tokens[:-1].view((self.B, self.T)).contiguous()
-        y = tokens[1:].view((self.B, self.T)).contiguous()
-
-        self.pos += self.B*self.T
-        return x.realize(), y.realize()
-
+        pos += B*T
+        yield x, y
 
 if __name__ == "__main__":
-    model = GPT2(TinyConfig)
-    dl = DataLoader(8, 1024)
-    opt = AdamW(get_parameters(model), lr=3e-4)
-    checkpoints_dir = pathlib.Path("/mydata/nanogpt-test-ckpts")
-    checkpoints_dir.mkdir(exist_ok=True)
+    if torch.cuda.is_available():
+        print("Using CUDA")
+        device = "cuda"
+    elif torch.backends.mps.is_built():
+        print("Using MPS")
+        device = "mps"
+    else:
+        print("Using CPU")
+        device = "cpu"
 
-    @TinyJit
-    def step(tokens: Int[Tensor, "B T"], targets: Int[Tensor, "B T"]):
-        logits = model(tokens)
-        loss = logits.sparse_categorical_crossentropy(targets)
-        opt.zero_grad()
+    torch.set_default_device(device)
+
+    model = GPT2(SmallConfig)
+    model.to(device)
+    model = torch.compile(model)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    for i, (x, y) in enumerate(dataloader(8, 1024)):
+        t0 = time.time()
+        x, y = x.to(device), y.to(device)
+        optimizer.zero_grad()
+        logits = model(x)
+        loss = nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
         loss.backward()
-        # schedule updates into same graph instead of updating state in jitted function
-        return loss.realize(*opt.schedule_step())
+        optimizer.step()
 
-    with Tensor.train():
-        for i in range(1, 50_001):
-            with Timing(f"Time (step {i}): "):
-                x, y = dl.next_batch()
-                loss = step(x.contiguous(), y.contiguous()).item()
-                print(f'{loss=}')
-
-            if i % 1_000 == 0:
-                ts = datetime.utcnow().strftime("%y%m%d-%H%M")
-                safe_save(get_state_dict(model), str(checkpoints_dir / f"step_{ts}_{i}.safetensors"))
+        t1 = time.time()
+        print(f"({(t1-t0)*1000:.1f}ms) {i=}, {loss.item()=}")
