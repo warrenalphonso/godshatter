@@ -89,6 +89,12 @@ name = "typechecker"
 version = "0.1.0"
 source = { editable = "." }
 
+[package.optional-dependencies]
+tinygrad = [
+    { name = "jaxtyping" },
+    { name = "tinygrad" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
@@ -99,6 +105,11 @@ tinygrad = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "jaxtyping", marker = "extra == 'tinygrad'", specifier = ">=0.3.3" },
+    { name = "tinygrad", marker = "extra == 'tinygrad'", specifier = ">=0.11.0" },
+]
+provides-extras = ["tinygrad"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.0.0" }]
